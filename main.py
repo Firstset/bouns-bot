@@ -139,6 +139,7 @@ class BounsBot:
 
     def main_loop(self):
         """Main bot loop"""
+        print("###~~~ BOUNS BOT ~~~###")
         # Initialize old supply (Option B from spec - skip existing tokens)
         old_supply = self.contract.functions.totalSupply().call()
         print(f"Starting with total supply: {old_supply}")
@@ -156,6 +157,7 @@ class BounsBot:
                             retry_delay = 1  # Initial delay in seconds
                             for attempt in range(max_retries):
                                 try:
+                                    print(f"Fetching tokenURI for {token_id}, attempt {attempt + 1}/{max_retries}")
                                     uri = self.contract.functions.tokenURI(token_id).call()
                                     break  # Success, exit retry loop
                                 except Exception as e:

@@ -1,0 +1,7 @@
+setuptools
+web3==6.11.1
+python-dotenv==1.0.0
+cairosvg==2.7.1
+requests==2.31.0 
+requests_oauthlib
+tweepy

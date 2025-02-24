@@ -1,15 +1,16 @@
 # Bouns Bot 🤖
 
-A Twitter bot that automatically tweets images of newly minted Boun NFTs on Berachain. The bot polls the contract every 5 minutes, detects new mints, and posts the NFT artwork to Twitter.
+A Twitter bot that automatically tweets images of newly minted Boun NFTs on Berachain. The bot monitors the Bouns auction contract to detect new mints and posts the NFT artwork to Twitter.
 
 ## Features
 
-- 🔄 Automatically detects new Boun NFT mints
+- 🔄 Automatically detects new Boun NFT mints via auction contract
 - 🖼️ Fetches on-chain SVG artwork and converts to PNG
 - 🐦 Posts tweets with NFT images
 - 🐳 Runs in a Docker container
 - 🚫 Stateless - no database required
-- ⚡ Handles multiple mints efficiently
+- ⚡ Smart polling based on auction end times
+- 🎯 Handles burned tokens correctly by tracking auction state
 
 ## Prerequisites
 
@@ -17,6 +18,7 @@ A Twitter bot that automatically tweets images of newly minted Boun NFTs on Bera
 - Twitter API credentials (from Twitter Developer Portal)
 - Berachain RPC endpoint
 - Boun NFT contract address
+- Boun Auction contract address
 
 ## Quick Start
 
@@ -34,7 +36,8 @@ cp .env.example .env
 3. Edit `.env` with your credentials:
 ```env
 RPC_URL=your_rpc_url_here
-CONTRACT_ADDRESS=your_contract_address_here
+NFT_CONTRACT_ADDRESS=your_nft_contract_address_here
+AUCTION_CONTRACT_ADDRESS=your_auction_contract_address_here
 TWITTER_API_KEY=your_twitter_api_key_here
 TWITTER_API_SECRET=your_twitter_api_secret_here
 TWITTER_ACCESS_TOKEN=your_twitter_access_token_here
@@ -81,7 +84,8 @@ python main.py
 | Variable | Description |
 |----------|-------------|
 | `RPC_URL` | Berachain RPC endpoint URL |
-| `CONTRACT_ADDRESS` | Boun NFT contract address |
+| `NFT_CONTRACT_ADDRESS` | Boun NFT contract address |
+| `AUCTION_CONTRACT_ADDRESS` | Boun Auction contract address |
 | `TWITTER_API_KEY` | Twitter API key |
 | `TWITTER_API_SECRET` | Twitter API secret |
 | `TWITTER_ACCESS_TOKEN` | Twitter access token |
@@ -104,10 +108,11 @@ docker logs bouns-bot
 
 ## Development
 
-- The bot polls every 5 minutes to save RPC credits
+- The bot monitors the auction contract to detect new Bouns
+- Smart polling adjusts frequency based on auction end times
 - SVG images are converted to PNG using cairosvg
 - Error handling ensures the bot continues running despite temporary failures
-- No persistent storage - restarts will skip existing tokens
+- No persistent storage - restarts will pick up from current auction state
 
 ## License
 

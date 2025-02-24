@@ -1,3 +1,5 @@
+<V1>
+
 Below is a **Technical Specification** for implementing the Bouns Twitter posting bot. This spec details the overall architecture, data flows, edge cases, and deployment steps so a developer can implement and deploy the solution.
 
 ---
@@ -298,3 +300,140 @@ if __name__ == "__main__":
 # Final Summary
 
 **The Bouns Bot** is a stateless Docker container that polls the NFT contract on Berachain, detects newly minted tokens, fetches on-chain SVG artwork, converts it to PNG, and posts the image to Twitter. The above **Technical Specification** outlines the entire flow, from contract interaction to Docker deployment, ensuring your developer can implement and maintain it efficiently.
+
+</V1>
+
+<V2>
+
+Below is an **updated Technical Specification** that reflects the new requirement to detect newly minted Bouns using the **Auction contract**—rather than the NFT’s `totalSupply()`—and to account for the possibility that auctions can end with no bidders and burned Bouns.
+
+---
+
+# **Bouns Bot: Revised Technical Specification**
+
+## 1. Overview
+
+- **Goal**: Tweet an image of each newly minted Boun NFT on Berachain.  
+- **Problem with `totalSupply()`**: Because a Boun can be burned (if unauctioned), the total NFT supply may **decrease** before increasing again, which breaks our previous polling strategy.  
+- **Solution**: Monitor the **Auction contract** for new auctions. Specifically, use the `auction()` function, which returns the current auction data (including the latest `nounId`). When `nounId` increments, we know a new Boun has been minted.
+
+---
+
+## 2. Auction Contract: Tracking New Bouns
+
+### 2.1 Auction Contract Endpoint
+
+- **Contract**: Bouns Auction contract.  
+- **Function**: 
+  ```solidity
+  function auction() 
+    view 
+    returns (
+      uint256 nounId,
+      uint256 amount,
+      uint256 startTime,
+      uint256 endTime,
+      address payable bidder,
+      bool settled
+    );
+  ```
+  - **`nounId`**: Identifies the Boun being auctioned.  
+  - **`endTime`**: Timestamp after which the auction is complete, though settlement can happen any time after.  
+
+### 2.2 Logic to Detect New Mints
+
+1. **Current Auction Polling**  
+   - The bot periodically calls `auction()` to retrieve the current `nounId`.  
+   - If the returned `nounId` is **greater** than the last known `nounId`, this indicates a **new Boun** has been created (a new auction started).
+2. **Auction Completion Constraint**  
+   - No new Boun is minted until the **previous** auction is settled.  
+   - Hence, once you see `endTime` pass (and eventually `settled == true`), the next call to `auction()` should reflect a **new** `nounId` if a new auction has begun.  
+3. **Reduced Polling**  
+   - Because a new Boun is only minted **after** settlement, you can skip intensive polling until **after** `endTime`.  
+   - For example, you might poll more frequently near `endTime` to detect settlement, or poll less often until you see that the current auction is settled.  
+
+---
+
+## 3. Interaction with the NFT Contract
+
+Even though you no longer rely on the NFT’s `totalSupply()`, you still need the **SVG** from the NFT contract:
+
+1. **Obtain `nounId`** from the Auction contract.  
+2. **Call `tokenURI(nounId)`** on the Bouns NFT contract to retrieve the NFT metadata.  
+   - This metadata contains the `image` field with the base64-encoded SVG.  
+3. **Convert the SVG to PNG** for the tweet, as per your existing approach.
+
+---
+
+## 4. Proposed High-Level Flow
+
+1. **Initialize**  
+   - Retrieve the **current** `auction()` data (which includes a `nounId`, `endTime`, etc.).  
+   - Store `lastKnownNounId` as the `nounId` from this call.
+
+2. **Main Loop**  
+   - **A. Auction Monitoring**  
+     - Check the **current** auction by calling `auction()`.  
+     - If `nounId` > `lastKnownNounId`, a **new** Boun has appeared (new auction):
+       1. Fetch the SVG from the NFT contract using `tokenURI(nounId)`.
+       2. Convert the SVG to PNG.
+       3. Tweet the result (with text, e.g. “New Boun minted! #nounId”).
+       4. Update `lastKnownNounId = nounId`.  
+   - **B. Poll Frequency**  
+     - If the current auction’s `endTime` has **not** passed, you can poll less frequently (since no new Boun will mint until the current auction finishes and is settled).  
+     - Once you pass `endTime`, you may poll more frequently to detect the settlement event (which leads to the next mint).
+
+3. **Statelessness & Edge Cases**  
+   - If the container restarts, it could initialize `lastKnownNounId` to the current `nounId` from the auction contract. This avoids re-tweeting older Bouns.  
+   - If you want to catch any new Bouns minted while the bot was offline, you could compare the on-chain logs or handle that in logic, but that introduces state or event lookbacks.
+
+---
+
+## 5. Contract Interactions
+
+1. **Auction Contract**  
+   - **Address**: The known Bouns Auction contract address.  
+   - **ABI**: Must include the `auction()` method signature given above.  
+
+2. **NFT Contract**  
+   - **Address**: The known Bouns NFT contract address.  
+   - **Method**: `tokenURI(uint256 _tokenId) returns (string)`.  
+   - The returned string is a `data:application/json;base64,...` that includes `"image": "data:image/svg+xml;base64,..."`.
+
+---
+
+## 6. Implementation Notes (No Code)
+
+- **Track `nounId`**:  
+  - Maintain a local variable (e.g., `lastKnownNounId`). If `auction().nounId` > `lastKnownNounId`, that indicates the new NFT.  
+- **Reduce Polling**:  
+  - Use `auction().endTime` to determine whether to poll more or less frequently. 
+  - For example, poll once per hour when far from `endTime`, then every few minutes around `endTime` until the auction is settled.  
+- **Image Posting**:  
+  - Same logic for decoding the base64 JSON → extracting and converting the SVG → uploading PNG to Twitter.  
+- **Optional**:  
+  - If you want an additional check that the auction is “settled” before tweeting, you can also inspect `auction().settled`. The new Boun typically appears only after settlement triggers the new auction creation.  
+  - The time between `endTime` and actual settlement can be indefinite, so handle the possibility of a delay.
+
+---
+
+## 7. Summary of Changes from the Previous Spec
+
+1. **No Longer Using `totalSupply()`**:  
+   - We cannot rely on an incrementing supply due to burn mechanics for unauctioned Bouns.  
+2. **Using `nounId` from the Auction Contract**:  
+   - Poll `auction()` to detect new mints via an incremented `nounId`.  
+3. **Two Contracts**:  
+   - **Auction** contract (to detect newly minted Bouns).  
+   - **NFT** contract (to fetch the actual SVG).  
+4. **Improved Polling Strategy**:  
+   - Option to use `endTime` to reduce polling frequency when the auction is ongoing.  
+   - Increase polling around or after `endTime` to detect settlement and the next minted Boun.
+
+---
+
+**Conclusion:**  
+The Bouns Bot should track the **Auction contract**’s `nounId` rather than the NFT contract’s `totalSupply()`. When a new `nounId` is detected, fetch and tweet the corresponding NFT image from the Bouns NFT contract. This approach circumvents problems with burned tokens and ensures accurate detection of newly minted Bouns.
+
+</V2>
+
